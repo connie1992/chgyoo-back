@@ -1,0 +1,251 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.chgyoo.barret.mapper.UserMapper">
+  <resultMap type="com.chgyoo.barret.entity.Department" id="deptMap">
+    <id column="id" property="id"/>
+    <result column="name" property="name" jdbcType="VARCHAR"/>
+    <result column="code" property="code" jdbcType="VARCHAR"/>
+    <result column="pgroup_id" property="parentId" jdbcType="VARCHAR"/>
+    <result column="path" property="path" jdbcType="VARCHAR"/>
+    <collection property="userList" ofType="com.chgyoo.barret.entity.User">
+      <id column="user_id" property="id"/>
+      <result column="user_name" property="name" jdbcType="VARCHAR"/>
+      <result column="user_id" property="code" jdbcType="VARCHAR"/>
+      <result column="account" property="account" jdbcType="VARCHAR"/>
+      <result column="post" property="post" jdbcType="VARCHAR"/>
+    </collection>
+  </resultMap>
+
+  <resultMap type="com.chgyoo.barret.entity.Group" id="groupMap">
+    <id column="id" property="id"/>
+    <result column="name" property="name" jdbcType="VARCHAR"/>
+    <result column="code" property="code" jdbcType="VARCHAR"/>
+    <result column="describe" property="desc" jdbcType="VARCHAR"/>
+    <result column="create_time" property="createTime" jdbcType="TIMESTAMP"/>
+    <result column="invalid_time" property="invalidTime" jdbcType="TIMESTAMP"/>
+  </resultMap>
+
+  <resultMap type="com.chgyoo.barret.entity.User" id="userMap">
+    <id column="id" property="id"/>
+    <result column="name" property="name" jdbcType="VARCHAR"/>
+    <result column="id" property="code" jdbcType="VARCHAR"/>
+    <result column="account" property="account" jdbcType="VARCHAR"/>
+    <result column="password" property="password" jdbcType="VARCHAR"/>
+    <result column="post" property="post" jdbcType="VARCHAR"/>
+    <result column="is_custom" property="custom" jdbcType="CHAR"/>
+    <result column="status" property="status" jdbcType="CHAR"/>
+  </resultMap>
+
+
+  <select id="getDept" resultMap="deptMap">
+    select * from t_dept t
+  </select>
+
+  <select id="getRoleDept" resultMap="deptMap">
+    select t1.* from t_dept t1, t_dept_role t2 where t1.id = t2.dept_id and t2.role_id = #{roleId}
+    <include refid="pageSuffix"></include>
+  </select>
+
+  <select id="getRoleGroup" resultMap="groupMap">
+    select t1.* from t_custom_group t1, t_cus_group_role t2 where t1.id = t2.group_id and t2.role_id = #{roleId}
+    <include refid="pageSuffix"></include>
+  </select>
+
+  <select id="getUserByAccount" resultMap="userMap">
+    select * from t_user t where t.account = #{account}
+  </select>
+
+  <select id="getDepartmentByUser" resultMap="deptMap">
+    select * from t_dept t where t.id in (select dept_id from t_dept_user where user_id = #{userId})
+  </select>
+
+  <select id="getRoleUser" resultMap="userMap">
+    select t1.* from t_user t1, t_user_role t2 where t1.id = t2.user_id and t2.role_id = #{roleId} and t1.status = 1
+    <include refid="pageSuffix"></include>
+  </select>
+
+  <select id="getGroupUser" resultMap="userMap">
+    select * from t_user t1 , (select t.user_id from
+    <choose>
+      <when test="isCustom">
+        t_cus_group_user
+      </when>
+      <otherwise>
+        t_dept_user
+      </otherwise>
+    </choose>
+    t where
+    <choose>
+      <when test="isCustom">
+        t.GROUP_ID
+      </when>
+      <otherwise>
+        t.dept_id
+      </otherwise>
+    </choose>
+    = #{groupId}) t2 where t1.id = t2.user_id and t1.status = 1
+    <if test="pageParam != null">
+      <include refid="pageSuffix"></include>
+    </if>
+  </select>
+
+  <select id="searchDeptUser" resultMap="deptMap">
+    select t1.*, t3.user_id, t3.user_name, t3.account, t3.post
+      from t_dept t1,
+           (select t1.id      user_id,
+                   t1.name    user_name,
+                   t1.account,
+                   t1.post,
+                   t2.dept_id
+              from t_user t1, t_dept_user t2
+             where (t1.id like CONCAT(CONCAT('%', #{key}),'%') or t1.name like CONCAT(CONCAT('%', #{key}),'%') or
+               t1.account like CONCAT(CONCAT('%', #{key}),'%'))  and  t1.status = 1 and t1.id = t2.user_id) t3
+     where t1.id = t3.dept_id
+  </select>
+
+
+  <select id="getDeptPath" resultType="java.lang.String">
+    select t.path from t_dept t where t.id
+    <choose>
+      <when test="isUser">
+        in (select dept_id from t_dept_user where user_id = #{id})
+      </when>
+      <otherwise>
+        = #{id}
+      </otherwise>
+    </choose>
+  </select>
+
+  <select id="getSelectRole" resultMap="com.chgyoo.barret.mapper.MenuMapper.roleMap" parameterType="Map">
+    select * from t_role t where t.id in (select role_id from ${roleTable} t where ${typeColumn} = #{id})
+  </select>
+
+  <select id="getUserGroupSelectRole" resultMap="com.chgyoo.barret.mapper.MenuMapper.roleMap">
+    select * from t_role where id in (
+      select distinct role_id from
+        (select role_id from t_dept_role
+            where dept_id in
+            <foreach collection="depts" item="dept" open="(" close=")" separator=",">
+              #{dept}
+            </foreach>
+          <if test="isUser">
+            union all
+            select t2.role_id
+            from t_cus_group_user t1, t_cus_group_role t2
+            where t1.user_id = #{id}
+            and t1.group_id = t2.group_id
+          </if>
+          ))
+  </select>
+
+  <insert id="insertRole" parameterType="Map">
+    insert into ${roleTable} (id, ${typeColumn}, role_id) (
+      <foreach collection="adds" separator="union all" item="item">
+        select #{item.id}, #{id}, #{item.roleId} from dual
+      </foreach>
+    )
+  </insert>
+
+  <delete id="deleteRole" parameterType="Map">
+    delete from ${roleTable} where ${typeColumn} = #{id} and role_id in
+    <foreach collection="removes" item="removeId" separator="," open="(" close=")">
+      #{removeId}
+    </foreach>
+  </delete>
+
+  <sql id="pageSuffix">
+        <if test="pageParam.sortKey != null and pageParam.sortKey != '' and pageParam.sortType != 'normal'">
+          order by ${pageParam.sortTableAlias}${pageParam.sortKey} ${pageParam.sortType}
+        </if>
+      limit #{pageParam.pageStart}, #{pageParam.pageEnd}
+  </sql>
+
+  <select id="getGroupTableData" resultMap="groupMap">
+    select * from t_custom_group t
+      <if test="key != null and key != ''">
+        where t.name like CONCAT(CONCAT('%', #{key}),'%')
+      </if>
+    <include refid="pageSuffix">
+    </include>
+  </select>
+
+  <insert id="insertGroup">
+    insert into t_custom_group
+    (
+      id, name, create_time, `describe`
+      <if test="code != null">
+        , code
+      </if>
+      <if test="invalidTime != null ">
+        , invalid_time
+      </if>
+    ) values
+    (
+      #{id}, #{name}, #{createTime}, #{desc}
+      <if test="code != null">
+        , #{code}
+      </if>
+      <if test="invalidTime != null ">
+        , #{invalidTime}
+      </if>
+    )
+  </insert>
+
+  <update id="updateGroup">
+    update t_custom_group t set t.name = #{name}, t.describe = #{desc}
+    <if test="code != null">
+      , t.code = #{code}
+    </if>
+    <choose>
+      <when test="invalidTime == null">
+        , t.invalid_time = null
+      </when>
+      <otherwise>
+        , t.invalid_time = #{invalidTime}
+      </otherwise>
+    </choose>
+    where t.id = #{id}
+  </update>
+
+
+
+  <select id="searchDeptByName" resultMap="deptMap">
+     select * from t_dept t where t.name like CONCAT(CONCAT('%', #{key}),'%')
+  </select>
+
+  <insert id="addGroupUser">
+    insert into t_cus_group_user (id, group_id, user_id)
+    (
+    <foreach collection="adds" item="item" separator="union all">
+      select #{item.id}, #{item.groupId}, #{item.userId} from dual
+    </foreach>
+    )
+  </insert>
+
+  <delete id="deleteGroupUser">
+    delete t from t_cus_group_user t where t.group_id = #{groupId} and t.user_id in
+    <foreach collection="ids" item="id" separator="," open="(" close=")">
+      #{id}
+    </foreach>
+  </delete>
+
+  <select id="getCusUser" resultMap="userMap">
+    select * from t_user t where t.is_custom = 1 and (t.account like CONCAT(CONCAT('%', #{key}),'%') or t.name like CONCAT(CONCAT('%', #{key}),'%'))
+    <include refid="pageSuffix"></include>
+  </select>
+
+  <insert id="insertCusUser" parameterType="com.chgyoo.barret.entity.User">
+    insert into t_user (
+      id, account, name, status, INTERFACE_TIME, IS_CUSTOM, PASSWORD, post
+    ) values (
+      #{id}, #{account}, #{name}, #{status}, #{interfaceTime}, '1', #{password}, #{post}
+    )
+  </insert>
+
+  <update id="updateCusUser" parameterType="com.chgyoo.barret.entity.User">
+    update t_user t set t.account = #{account}, t.name = #{name}, t.status = #{status}, t.password = #{password}, t.post = #{post}
+     where t.id = #{id}
+  </update>
+
+</mapper>

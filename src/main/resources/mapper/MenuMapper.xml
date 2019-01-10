@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.chgyoo.barret.mapper.MenuMapper">
+  <resultMap type="com.chgyoo.barret.entity.Menu" id="menuMap">
+    <id column="id" property="id"/>
+    <result column="name" property="name" jdbcType="VARCHAR"/>
+    <result column="page_path" property="pagePath" jdbcType="VARCHAR"/>
+    <result column="route_url" property="routeUrl" jdbcType="VARCHAR"/>
+    <result column="icon" property="icon" jdbcType="VARCHAR"/>
+    <result column="parent_id" property="parentId" jdbcType="VARCHAR"/>
+    <result column="menu_order" property="menuOrder" jdbcType="VARCHAR"/>
+    <result column="create_time" property="createTime" jdbcType="TIMESTAMP"/>
+    <result column="update_time" property="updateTime" jdbcType="TIMESTAMP"/>
+    <result column="path" property="path" jdbcType="VARCHAR"/>
+    <collection property="permission" ofType="java.lang.String">
+      <result column="code" jdbcType="VARCHAR"></result>
+    </collection>
+  </resultMap>
+
+  <resultMap id="btnMap" type="com.chgyoo.barret.entity.Button" >
+    <id column="ID" property="id" jdbcType="CHAR" />
+    <result column="CODE" property="code" jdbcType="VARCHAR" />
+    <result column="NAME" property="name" jdbcType="VARCHAR" />
+  </resultMap>
+
+  <resultMap type="com.chgyoo.barret.entity.Role" id="roleMap">
+    <id column="id" property="id"/>
+    <result column="name" property="name" jdbcType="VARCHAR"/>
+    <result column="code" property="code" jdbcType="VARCHAR"/>
+    <result column="describe" property="desc" jdbcType="VARCHAR"/>
+    <result column="create_time" property="createTime" jdbcType="TIMESTAMP"/>
+    <result column="invalid_time" property="invalidTime" jdbcType="TIMESTAMP"/>
+  </resultMap>
+
+  <select id="getMenuData" resultMap="menuMap">
+        SELECT t.*, null code FROM t_menu t order by t.parent_id, t.menu_order
+   </select>
+
+  <select id="getMenuByPid" resultMap="menuMap">
+        SELECT t.*, null code FROM t_menu t WHERE parent_id = #{pid} and menu_order = #{menuOrder}
+  </select>
+
+  <select id="getBtns" resultMap="btnMap">
+    select * from t_button t where t.id in (select btn_id from t_menu_btn where menu_id = #{menuId})
+  </select>
+
+  <sql id="queryMenuPath">
+    <choose>
+      <when test="parentId == 'root'">
+        select #{id} from dual
+      </when>
+      <otherwise>
+        select t.path || ';' || #{id} from t_menu t where t.id = #{parentId}
+      </otherwise>
+    </choose>
+  </sql>
+
+  <insert id="insertMenu" parameterType="com.chgyoo.barret.entity.Menu" useGeneratedKeys="false">
+    <selectKey keyProperty="path" resultType="java.lang.String" order="BEFORE">
+      <include refid="queryMenuPath"></include>
+    </selectKey>
+    insert into t_menu  (id, name, page_path, route_url, icon, menu_order, parent_id, create_time, path)
+    values (#{id}, #{name}, #{pagePath}, #{routeUrl}, #{icon}, #{menuOrder}, #{parentId}, #{createTime}, #{path}
+    )
+  </insert>
+
+  <update id="updateMenu" parameterType="com.chgyoo.barret.entity.Menu">
+    <selectKey keyProperty="path" resultType="java.lang.String" order="BEFORE">
+      <include refid="queryMenuPath"></include>
+    </selectKey>
+    update t_menu set name = #{name}, page_path = #{pagePath}, route_url = #{routeUrl}, icon = #{icon},
+    menu_order=#{menuOrder}, parent_id = #{parentId}, update_time = #{updateTime}, path = #{path} where id = #{id}
+  </update>
+
+  <delete id="deleteMenu">
+    delete t from t_menu t where t.id in
+    <foreach collection="ids" item="id" open="(" close=")" separator=",">
+      #{id}
+    </foreach>
+  </delete>
+
+  <select id="getRoleSize" resultType="java.lang.Integer">
+    select count(1) from t_role t
+    <where>
+      <if test="key != ''">
+        t.code like CONCAT(CONCAT('%', #{key}),'%')
+        or t.name like CONCAT(CONCAT('%', #{key}),'%')
+      </if>
+    </where>
+  </select>
+
+  <select id="getRoleTableData" resultMap="roleMap">
+       select * from t_role t
+        <if test="key != ''">
+          where t.code like CONCAT(CONCAT('%', #{key}),'%')
+          or t.name like CONCAT(CONCAT('%', #{key}),'%')
+        </if>
+        <if test="pageParam.sortKey != null and pageParam.sortKey != ''">
+          order by ${pageParam.sortKey} ${pageParam.sortType}
+        </if> limit #{pageParam.pageStart}, #{pageParam.pageEnd}
+  </select>
+
+  <select id="getActiveRole" resultMap="roleMap">
+    select *
+      from t_role t
+     where t.invalid_time is null
+        or (date_format(t.invalid_time, 'yyyy-mm-dd') >
+           date_format(sysdate(), 'yyyy-mm-dd'))
+  </select>
+
+  <update id="updateRole" parameterType="com.chgyoo.barret.entity.Role">
+    update t_role t set t.name=#{name}, t.code=#{code}, t.describe=#{desc}
+    <choose>
+      <when test="invalidTime != null">
+        , t.invalid_time=#{invalidTime}
+      </when>
+      <otherwise>
+        , t.invalid_time = null
+      </otherwise>
+    </choose>
+     where t.id = #{id}
+  </update>
+
+
+  <insert id="insertRole" parameterType="com.chgyoo.barret.entity.Role">
+    insert into t_role (id, name, code, create_time, `describe`
+    <if test="invalidTime != null">
+      , t.invalid_time
+    </if>
+    )
+    values (#{id}, #{name}, #{code}, #{createTime}, #{desc}
+    <if test="invalidTime != null">
+      , #{invalidTime}
+    </if>)
+  </insert>
+
+
+  <select id="getRoleMenu" resultMap="menuMap">
+    select t.*, null code from t_menu t where t.id in (select menu_id from t_role_menu where role_id = #{roleId})
+  </select>
+
+  <select id="getRoleBtn" resultMap="btnMap">
+    select t1.* from t_button t1, t_role_menu t2, t_role_menu_btn t3
+    where
+    t2.role_id = #{roleId} and t2.menu_id = #{menuId} and t3.ROLE_MENU_ID = t2.id and t1.id = t3.btn_id
+  </select>
+
+  <delete id="removeRoleMenu">
+    delete t from t_role_menu t where t.role_id = #{roleId} and t.menu_id in
+    <foreach collection="menuArr" item="menuId" open="(" close=")" separator=",">
+      #{menuId}
+    </foreach>
+  </delete>
+
+  <insert id="saveRoleMenu" useGeneratedKeys="false">
+    insert into
+        t_role_menu (id, role_id, menu_id)
+    (
+    <foreach collection="list" item="item" separator="union all">
+      select #{item.id}, #{item.roleId}, #{item.menuId} from dual
+    </foreach>
+    )
+  </insert>
+
+  <delete id="removeRoleBtn">
+    delete t from t_role_menu_btn t where t.role_menu_id = (
+      select id from t_role_menu where role_id = #{roleId} and menu_id = #{menuId}
+    ) and
+    t.btn_id in
+    <foreach collection="btnArr" item="id" open="(" close=")" separator=",">
+      #{id}
+    </foreach>
+  </delete>
+
+  <insert id="saveRoleBtn" useGeneratedKeys="false">
+    <selectKey keyProperty="role_menu_id" resultType="java.lang.String" order="BEFORE">
+      select id from t_role_menu t where role_id = #{roleId} and t.menu_id = #{menuId}
+    </selectKey>
+    insert into
+    t_role_menu_btn (id, role_menu_id, btn_id)
+    (
+    <foreach collection="list" item="item" separator="union all">
+      select #{item.id}, #{role_menu_id}, #{item.btnId} from dual
+    </foreach>
+    )
+  </insert>
+
+  <select id="getRoleMenuBtn" resultMap="menuMap">
+    select distinct t4.id,
+                    t4.name,
+                    t4.route_url,
+                    t4.page_path,
+                    t4.icon,
+                    t4.parent_id,
+                    t4.menu_order,
+                    t4.path,
+                    t5.code
+      from (select t3.*, t2.btn_id
+              from t_role_menu t1 left join t_role_menu_btn t2 on t1.id = t2.role_menu_id, t_menu t3
+             where t1.role_id in
+                   <foreach collection="roles" open="(" close=")" separator="," item="roleId">
+                     #{roleId}
+                   </foreach>
+               and t1.menu_id = t3.id) t4 left join t_button t5
+                on
+                t4.btn_id = t5.id
+     order by t4.parent_id, t4.menu_order
+  </select>
+</mapper>
